@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ACG 群友 · 控制台</title>
+  <link rel="stylesheet" href="./style.css?v=1.4.0">
+</head>
+<body>
+<main>
+  <header><div><span class="eyebrow">ACG COMPANION</span><h1>群友控制台</h1><p>看看它准备说什么，再决定是否发到群里。</p></div><div class="connection-tools"><span id="connection" role="status" data-state="pending">连接中</span><button id="refresh" class="secondary" disabled>正在连接…</button></div></header>
+  <div id="notice" role="status" aria-live="polite">正在连接 AstrBot…</div>
+  <nav aria-label="页面"><button class="tab selected" data-tab="test">测试与状态</button><button class="tab" data-tab="image-test">生图测试</button><button class="tab" data-tab="settings">插件设置</button></nav>
+  <section id="test" class="tab-content">
+    <div class="toolbar"><label>目标群<select id="group" aria-label="目标群" disabled></select></label><div id="budget" class="muted"></div><button id="pause" class="secondary" disabled>暂停本群</button></div>
+    <div class="grid">
+      <article>
+        <div class="section-label">01 · 生成预览</div>
+        <h2>试试它的语气</h2>
+        <label>测试类型<select id="kind"><option value="share">主动分享 ACG 音乐 / 视频</option><option value="purchase">晒新购物 · 玩笑演练</option><option value="social">联机 / 吃饭 / 出游 · 提问演练</option><option value="problem">未解决的问题 · 跟进演练</option><option value="thursday">疯狂星期四 · 文案演练</option></select></label>
+        <label id="source-label">内容来源<select id="source"><option value="random">随机来源</option><option value="bilibili">B 站 ACG 热门</option><option value="qq_anime">QQ 音乐 · 动漫榜</option><option value="qq_game">QQ 音乐 · 游戏榜</option><option value="netease">网易云 · ACG 榜</option></select></label>
+        <label id="topic-label" hidden>话题来源<select id="topic"><option value="">自己填写模拟场景（仅预览）</option></select></label>
+        <label id="scene-label" hidden>模拟的群友原话<textarea id="scene" rows="4" maxlength="1000" placeholder="例如：今晚有没有人一起联机？我晚饭后有空"></textarea></label>
+        <p class="hint" id="mode-hint">读取真实热榜和当前群人格，生成短评。只在网页显示，不会自动发到群里。</p>
+        <button id="generate" class="primary" disabled>生成一次预览</button>
+        <p class="hint">每次生成最多调用一次文本模型，计入每天额度；不会发起图片或歌曲生成。</p>
+      </article>
+      <article class="preview-card">
+        <div class="section-label">02 · 检查并试发</div><h2>它准备说</h2>
+        <div id="preview-meta" class="muted">尚未生成</div>
+        <div id="preview-text" class="bubble" aria-live="polite">点击左侧按钮，先在这里看看效果。</div>
+        <a id="share-card" class="share-card" target="_blank" rel="noopener noreferrer" hidden>
+          <div class="share-visual"><span id="share-placeholder">暂无封面</span><img id="share-cover" alt="内容封面" referrerpolicy="no-referrer" hidden></div>
+          <div class="share-info"><span id="share-source" class="share-source"></span><strong id="share-title"></strong><span id="share-author" class="muted"></span><span class="share-open">打开原站 ↗</span></div>
+        </a>
+        <p id="preview-note" class="hint" aria-live="polite"></p>
+        <button id="send" class="primary" disabled>发送到选定群</button>
+        <p class="hint">复用这条预览，不再调用模型。手动试发跳过等待、冷却和夜间静默，使用独立的每日试发额度，仍需开启插件并通过去重检查。</p>
+      </article>
+    </div>
+    <article class="status-card"><h2>自动触发状态</h2><div id="blockers"></div><div class="status-grid"><div><h3>今天的随机分享时刻</h3><div id="schedule"></div></div><div><h3>待跟进的话题</h3><div id="pending"></div></div></div><h3>最近的发送记录</h3><div id="history"></div></article>
+  </section>
+  <section id="image-test" class="tab-content" hidden>
+    <article>
+      <div class="section-label">IMAGE · 生图测试</div><h2>先看看它准备分享什么</h2>
+      <p class="muted">使用已保存的生图接口，无需开启自动生图。配文留空时由模型按图片主题选择分享口吻，先在这里预览。</p>
+      <div class="toolbar"><label>图片测试目标群<select id="image-group" aria-label="图片测试目标群" disabled></select></label></div>
+      <p class="hint">推荐先试魔搭：API 地址留空、模型保留默认值，只需保存自己的魔搭 Token。免密钥图片直链可只填带 {prompt} 的地址；其他服务还需填写自己的密钥和模型名。</p>
+      <div class="grid image-test-grid">
+        <div>
+          <label>绘图提示词<textarea id="image-prompt" rows="4" maxlength="1200" placeholder="留空随机选一个涂鸦、风景或宵夜主题。也可以填写：动漫风格，雨后的街角，暖色夕阳，无文字"></textarea></label>
+          <label>分享时的配文<input id="image-caption" maxlength="160" placeholder="留空由模型按主题写一句；手填内容优先使用"></label>
+          <p class="hint">模型会参考生图主题和人格，自行选择日常见闻、吃喝、创作等口吻。复用已配文的图片不重复调用；也可只重写配文来测试，不必重新生图。</p>
+          <label><input id="image-fresh" type="checkbox">重新请求接口生成新图</label>
+          <p class="hint">默认复用生成间隔内的作品，修改提示词也不会重新扣额度。勾选后会再次请求服务，可能消耗额度；新图仍会缓存给自动分享使用。</p>
+          <p id="image-budget" class="hint" aria-live="polite">正在读取手动生图次数；每日上限和请求间隔可在“插件设置”调整。</p>
+          <div class="image-actions"><button id="image-generate" class="primary" disabled>生成 / 复用图片预览</button><button id="image-check" class="secondary" disabled>检查生图进度</button></div>
+        </div>
+        <div>
+          <div id="image-meta" class="muted">尚未生成</div>
+          <img id="image-preview" class="generated-preview" alt="生成图片预览" hidden>
+          <div id="image-text" class="bubble" hidden></div>
+          <p id="image-note" class="hint" aria-live="polite">仅点击生成不会向群里发消息。</p>
+          <p id="image-send-budget" class="hint" aria-live="polite"></p>
+          <button id="image-rewrite" class="secondary" disabled>模型重写配文</button>
+          <button id="image-send" class="primary" disabled>发送这张图到预览目标群</button>
+          <p class="hint">重写只调用一次文本模型，以“绘图提示词”中的内容或该图片保存的主题为依据。旧图未保存主题时，请填写图中内容。</p>
+          <p class="hint">发送复用预览中的图片和配文，不再次生图。使用独立的每日手动试发额度，仍遵守插件开关、群暂停和内容去重。</p>
+        </div>
+      </div>
+    </article>
+  </section>
+  <section id="settings" class="tab-content" hidden>
+    <article><h2>插件设置</h2><p class="muted">保存后立即生效。密钥留空保留已有值；页面不会读回完整密钥。</p><form id="settings-form"><div id="config-fields"></div><div class="savebar"><button id="save" class="primary" type="submit" disabled>保存并应用</button><span class="hint">调整人格请使用 AstrBot 原有人格设置。</span></div></form></article>
+  </section>
+  <footer>ACG 群友 <span id="version">1.4.0</span> · 预览保留 10 分钟；重载插件后请重新生成。</footer>
+</main>
+<script defer src="./app.js?v=1.4.0"></script>
+</body>
+</html>
