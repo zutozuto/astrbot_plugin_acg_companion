@@ -9,6 +9,20 @@ from datetime import datetime, timedelta, timezone
 
 SHANGHAI = timezone(timedelta(hours=8))
 
+SESSION_RE = re.compile(r"[^:\s]+:(?:GroupMessage|FriendMessage):\d+$")
+
+
+def is_group_session(umo: str) -> bool:
+    """Return whether a configured UMO is a group conversation."""
+    return str(umo).split(":")[1:2] == ["GroupMessage"]
+
+
+def session_label(umo: str) -> str:
+    """Human-readable label without exposing a private session as a group."""
+    parts = str(umo).split(":")
+    kind = "群" if len(parts) > 1 and parts[1] == "GroupMessage" else "私聊"
+    return f"{kind} {parts[-1]}"
+
 
 def local_time(ts: float) -> datetime:
     return datetime.fromtimestamp(ts, SHANGHAI)
@@ -30,7 +44,7 @@ class Settings:
         self.raw = cfg
         self.enabled = bool(cfg.get("enabled", True))
         self.sessions = tuple(dict.fromkeys(str(x) for x in cfg.get("sessions", [])
-                                          if re.fullmatch(r"[^:]+:GroupMessage:\d+", str(x))))
+                                          if SESSION_RE.fullmatch(str(x))))
         self.provider = str(cfg.get("provider_id", "")).strip()
         limits = re.fullmatch(r"\s*(\d+)\s*(?:-\s*(\d+)\s*)?", str(cfg.get("daily_limit", "2-5")))
         if not limits:

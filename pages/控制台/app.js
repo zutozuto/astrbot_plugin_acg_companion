@@ -9,7 +9,7 @@
   function node(tag, text, cls) { const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n; }
   function notice(text, error=false) { $('notice').textContent=text; $('notice').className=error?'error':''; }
   function invalidate() { draft=null; $('send').disabled=true; $('preview-meta').textContent='尚未生成'; $('preview-text').hidden=false; $('preview-text').textContent='先生成一条预览，确认效果后再试发。'; $('preview-note').textContent=''; renderCard(null); }
-  function invalidateImage() { imageDraft=null;imageJob=null;imageRunning=false;clearTimeout(imageTimer);$('image-preview').hidden=true;$('image-preview').removeAttribute('src');$('image-text').hidden=true;$('image-meta').textContent='尚未生成';$('image-note').textContent='仅点击生成不会向群里发消息。'; }
+  function invalidateImage() { imageDraft=null;imageJob=null;imageRunning=false;clearTimeout(imageTimer);$('image-preview').hidden=true;$('image-preview').removeAttribute('src');$('image-text').hidden=true;$('image-meta').textContent='尚未生成';$('image-note').textContent='仅点击生成不会向会话发消息。'; }
   function renderCard(card) {
     const box=$('share-card'),image=$('share-cover');box.hidden=!card;box.removeAttribute('href');image.hidden=true;image.removeAttribute('src');
     $('share-placeholder').hidden=false;
@@ -26,7 +26,7 @@
   }
   function renderManualBudget() {
     const g=state?.groups.find(g=>g.umo===(imageDraft?.umo||$('image-group').value));
-    $('image-send-budget').textContent=g?`预览目标群今日手动试发 ${g.manual_count??0}/${g.manual_cap??10} 次；与自动发言、生图请求次数分开。`:'';
+    $('image-send-budget').textContent=g?`预览目标会话今日手动试发 ${g.manual_count??0}/${g.manual_cap??10} 次；与自动发言、生图请求次数分开。`:'';
   }
   function withTimeout(promise, ms, message) {
     let timer;
@@ -37,7 +37,7 @@
     // AstrBot's host adds the plugin prefix and unwraps the HTTP envelope.
     // SDK endpoints are relative, e.g. "status", never /api/plug/<plugin>/status.
     const response=body===undefined?bridge.apiGet(path):bridge.apiPost(path,body);
-    const raw=await withTimeout(response,path==='preview'?110000:path==='send'?55000:path==='image-caption'?35000:20000,path==='send'?'发送等待超时，请到群里确认；本页不会自动重发。':'请求等待超时，请确认 AstrBot 正在运行；本页不会自动重试。');
+    const raw=await withTimeout(response,path==='preview'?110000:path==='send'?55000:path==='image-caption'?35000:20000,path==='send'?'发送等待超时，请到会话中确认；本页不会自动重发。':'请求等待超时，请确认 AstrBot 正在运行；本页不会自动重试。');
     let result=raw;
     // Older/test hosts may retain the envelope; current Views return data only.
     if (raw?.data?.status) result=raw.data;
@@ -104,9 +104,9 @@
   }
   function renderGroup() {
     const g=group();
-    if(!g){$('budget').textContent='请到插件设置中添加目标群';$('blockers').textContent='尚未配置目标群。';return;}
-    $('budget').textContent=`今日自动发送 ${g.count}/${g.cap} · 手动试发 ${g.manual_count??0}/${g.manual_cap??10} · 本群模型 ${g.calls}/${g.call_cap} · 全部群模型 ${state.total_calls}/${state.total_call_cap}`;
-    $('pause').textContent=g.paused?'恢复本群':'暂停本群';
+    if(!g){$('budget').textContent='请到插件设置中添加目标会话';$('blockers').textContent='尚未配置目标会话。';return;}
+    $('budget').textContent=`今日自动发送 ${g.count}/${g.cap} · 手动试发 ${g.manual_count??0}/${g.manual_cap??10} · 本会话模型 ${g.calls}/${g.call_cap} · 全部会话模型 ${state.total_calls}/${state.total_call_cap}`;
+    $('pause').textContent=g.paused?'恢复本会话':'暂停本会话';
     $('blockers').replaceChildren(...(g.blockers.length?g.blockers:['本地条件已满足，等待到期任务和模型判断']).map(x=>node('span',x,'chip')));
     $('schedule').replaceChildren(...g.plan.map(x=>node('span',fmt(x.due)+(x.expires<Date.now()/1000?' · 已过期':''),'chip')));
     if(!g.plan.length)$('schedule').textContent='今天没有随机分享计划。';
@@ -129,7 +129,7 @@
     $('source-label').hidden=!share;
     $('topic-label').hidden=share||kind==='thursday';
     $('scene-label').hidden=share||real||kind==='thursday';
-    $('mode-hint').textContent=share?'读取真实热榜和当前群人格，生成短评；不会自动发群消息。':real?'使用本群已记录的真实话题和后续聊天判断；未到原定时间也可手动预览。':'模拟场景只用于网页测试语气，可以修改原话；不会写入群聊记录，也不能直接发到群里。';
+    $('mode-hint').textContent=share?'读取真实热榜和当前会话人格，生成短评；不会自动发会话消息。':real?'使用本会话已记录的真实话题和后续聊天判断；未到原定时间也可手动预览。':'模拟场景只用于网页测试语气，可以修改原话；不会写入聊天记录，也不能直接发到会话中。';
   }
   function renderConfig() {
     inputs=new Map();keyClears=new Map();$('config-fields').replaceChildren();
@@ -169,19 +169,19 @@
     if(draft.decision==='skip'){$('preview-text').textContent='这次它决定先不说。';$('preview-note').textContent=draft.reason;}
     else{$('preview-text').textContent=draft.text;$('preview-text').hidden=false;renderCard(draft.card);
       const format=draft.card?'封面图片＋标题＋原站链接。':'';
-      $('preview-note').textContent=draft.simulation?'模拟预览，不会发送到群里。':`${format}预览将在 ${fmt(draft.expires)} 过期；可以点击下方按钮发送。`;}
-    $('preview-meta').textContent=(draft.source?draft.source+' · ':'')+(draft.simulation?'语气演练':`群 ${draft.umo.split(':').pop()}`);
-    await load();notice(draft.decision==='skip'?'生成完成：模型选择跳过。':'预览已生成，尚未发到群里。');
+      $('preview-note').textContent=draft.simulation?'模拟预览，不会发送到会话中。':`${format}预览将在 ${fmt(draft.expires)} 过期；可以点击下方按钮发送。`;}
+    $('preview-meta').textContent=(draft.source?draft.source+' · ':'')+(draft.simulation?'语气演练':state.groups.find(g=>g.umo===draft.umo)?.name||draft.umo);
+    await load();notice(draft.decision==='skip'?'生成完成：模型选择跳过。':'预览已生成，尚未发到会话中。');
   });
   async function sendPreview(current, noteId, image=false) {
     if(!current?.sendable)return;
     current.sendable=false;
-    const pending=image?'正在发送这张图到预览目标群…':'正在发送这条预览…';
+    const pending=image?'正在发送这张图到预览目标会话…':'正在发送这条预览…';
     $(noteId).textContent=pending;notice(pending);
     let result;
     try {result=await api('send',{token:current.token});}
     catch(e){const message=(e.message||'发送未完成')+(image?'；可点击“检查生图进度”核对预览状态，本页不会自动重发。':'；请核对状态，本页不会自动重发。');$(noteId).textContent=message;notice(message,true);return;}
-    const message=result.message||(result.data?.result==='sent'?(image?'已发送到预览目标群':'已发送到选定群'):'发送结果不确定，请到群里确认；不会自动重发。');
+    const message=result.message||(result.data?.result==='sent'?(image?'已发送到预览目标会话':'已发送到选定会话'):'发送结果不确定，请到会话中确认；不会自动重发。');
     $(noteId).textContent=message;notice(message,result.data?.result!=='sent');
     try {await load();}catch(e){notice(message+'；状态刷新失败，可稍后手动刷新。',true);}
   }
@@ -199,8 +199,8 @@
       if(imageRunning){$('image-note').textContent=(info.stage||'正在等待生图服务…')+'；只查询进度，不会重复提交。';imageTimer=setTimeout(pollImage,2000);}
       else if(info.status==='ready'&&info.preview){imageDraft=info.preview;
         $('image-preview').src=imageDraft.image;$('image-preview').hidden=false;$('image-text').textContent=imageDraft.text;$('image-text').hidden=false;
-        $('image-meta').textContent=`${imageDraft.title} · 目标群 ${imageDraft.umo.split(':').pop()}`;
-        $('image-note').textContent=(imageDraft.reused?'复用已有图片，本次未重新调用生图服务。':'生成完成，尚未发到群里。')+` 预览在 ${fmt(imageDraft.expires)} 过期。`+(imageDraft.caption_note?' '+imageDraft.caption_note:'');
+        $('image-meta').textContent=`${imageDraft.title} · ${state.groups.find(g=>g.umo===imageDraft.umo)?.name||imageDraft.umo}`;
+        $('image-note').textContent=(imageDraft.reused?'复用已有图片，本次未重新调用生图服务。':'生成完成，尚未发到会话中。')+` 预览在 ${fmt(imageDraft.expires)} 过期。`+(imageDraft.caption_note?' '+imageDraft.caption_note:'');
       } else {$('image-note').textContent=(info.message||'生图未完成；不会自动重新提交。')+(imageDraft?' 上一张预览已保留。':'');}
     } catch(e){imageRunning=false;$('image-note').textContent=(e.message||'读取进度失败')+'；可点击“检查生图进度”继续读取，本页不会重新提交。'+(imageDraft?' 上一张预览已保留。':'');}
     finally{syncControls();}

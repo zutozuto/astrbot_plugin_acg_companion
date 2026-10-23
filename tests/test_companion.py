@@ -21,15 +21,20 @@ from acg_companion.sources import Content, Sources, cover_url
 from acg_companion.sharing import components
 from acg_companion.media import Media
 from acg_companion.main import AcgCompanion
-from astrbot.api.message_components import Image, Plain
+from astrbot.api.message_components import At, Image, Plain
 
 main = importlib.import_module(AcgCompanion.__module__)
 UMO = "test:GroupMessage:123456789"
 OTHER = "test:GroupMessage:987654321"
+PRIVATE = "test:FriendMessage:234567890"
 NOW = datetime(2026, 10, 21, 14, tzinfo=SHANGHAI).timestamp()
 
 
 class RulesTest(unittest.TestCase):
+    def test_settings_accept_group_and_friend_sessions_only(self):
+        cfg = Settings({"sessions": [UMO, PRIVATE, "test:PrivateMessage:234567890", "test:GroupMessage:abc"]})
+        self.assertEqual(cfg.sessions, (UMO, PRIVATE))
+
     def test_daily_limit_accepts_fixed_range_and_zero(self):
         for value, bounds in [("2-5", (2, 5)), ("3", (3, 3)), ("0", (0, 0)), (" 0 - 10 ", (0, 10))]:
             cfg = Settings({"daily_limit": value})
@@ -279,6 +284,7 @@ class IntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def test_real_framework_import_and_successful_tick(self):
         await self.p.tick()
         self.send.assert_awaited_once()
+        self.assertIsInstance(self.send.call_args.args[1].chain[0], At)
         self.assertEqual(self.p.store.status("problem"), "sent")
         self.assertEqual(self.create.call_args.kwargs["max_tokens"], 320)
         self.options_mock.assert_called_once_with(timeout=45, max_retries=0)
@@ -411,6 +417,73 @@ class IntegrationTest(unittest.IsolatedAsyncioTestCase):
         event.message_str = "已经修好了，谢谢"
         await self.p.observe(event)
         self.assertEqual(self.p.store.status(row["id"]), "cancelled")
+
+    async def test_private_observe_records_followup_topic(self):
+        self.p.cfg = Settings({**dict(self.p.cfg.raw), "sessions": [UMO, OTHER, PRIVATE]})
+        event = SimpleNamespace(unified_msg_origin=PRIVATE, message_str="今晚有没有人一起联机打游戏？",
+                                get_sender_id=lambda: "234567890", get_self_id=lambda: "999",
+                                get_sender_name=lambda: "好友")
+        await self.p.observe(event)
+        event.message_str = "游戏报错了，怎么办"
+        await self.p.observe(event)
+        rows = self.p.store.db.execute("SELECT * FROM jobs WHERE umo=?", (PRIVATE,)).fetchall()
+        self.assertEqual({row["kind"] for row in rows}, {"social", "problem"})
+
+    async def test_private_delivery_has_no_at_and_history_guard_is_skipped(self):
+        self.p.cfg = Settings({**dict(self.p.cfg.raw), "sessions": [UMO, OTHER, PRIVATE]})
+        self.p.bots[PRIVATE] = SimpleNamespace(call_action=AsyncMock())
+        await self.p.history_guard(PRIVATE)
+        self.p.bots[PRIVATE].call_action.assert_not_awaited()
+        self.p.store.add_job("private-problem", PRIVATE, "problem", NOW - 60, NOW + 3600, NOW - 1800,
+                             "234567890", "好友", "游戏一直连不上怎么办")
+        job = self.p.store.due(PRIVATE, NOW)[0]
+        result = await self.p.deliver(job, "现在解决了吗？", None, NOW, 2)
+        self.assertEqual(result, "sent")
+        chain = self.send.call_args.args[1].chain
+        self.assertEqual(self.send.call_args.args[0], PRIVATE)
+        self.assertTrue(chain)
+        self.assertTrue(all(not isinstance(part, At) for part in chain))
+        self.assertEqual(self.p.store.count(UMO, NOW), 0)
+
+    async def test_private_scheduler_uses_private_context_and_own_budget(self):
+        self.p.cfg = Settings({**dict(self.p.cfg.raw), "sessions": [PRIVATE]})
+        self.p.store.update(PRIVATE, last_human=NOW - 600)
+        self.p.store.add_job("private-problem", PRIVATE, "problem", NOW - 60, NOW + 3600, NOW - 1800,
+                             "234567890", "好友", "游戏一直连不上怎么办")
+        await self.p.tick()
+        self.assertEqual(self.send.call_args.args[0], PRIVATE)
+        self.assertEqual(self.p.store.status("private-problem"), "sent")
+        payload = json.loads(self.create.call_args.kwargs["messages"][1]["content"])
+        self.assertEqual(payload["conversation_type"], "private")
+        self.assertIn("当前是好友私聊", self.create.call_args.kwargs["messages"][0]["content"])
+        self.assertEqual(self.p.store.calls(PRIVATE, NOW), 1)
+        self.assertEqual(self.p.store.calls(UMO, NOW), 0)
+
+    async def test_web_snapshot_labels_friend_session_and_accepts_config(self):
+        self.p.cfg = Settings({**dict(self.p.cfg.raw), "sessions": [UMO, PRIVATE]})
+        snapshot = self.p.web.snapshot()
+        self.assertEqual([row["name"] for row in snapshot["groups"]], ["群 123456789", "私聊 234567890"])
+        self.assertTrue(snapshot["groups"][1]["is_group"] is False)
+        values = self.p.web.validate_config({"values": {"sessions": [UMO, PRIVATE]}})
+        self.assertEqual(values["sessions"], [UMO, PRIVATE])
+
+    async def test_web_private_share_preview_sends_to_friend(self):
+        self.p.cfg = Settings({**dict(self.p.cfg.raw), "sessions": [UMO, PRIVATE]})
+        self.mock_web_share()
+        preview = await self.web_call(self.p.web.preview, self.preview_request(umo=PRIVATE))
+        self.assertTrue(preview["data"]["sendable"])
+        result = await self.web_call(self.p.web.send, {"token": preview["data"]["token"]})
+        self.assertEqual(result["data"]["result"], "sent")
+        self.assertEqual(self.send.call_args.args[0], PRIVATE)
+
+    async def test_web_private_image_preview_sends_to_friend(self):
+        self.p.cfg = Settings({**dict(self.p.cfg.raw), "sessions": [UMO, PRIVATE]})
+        self.p.media.cfg = self.p.cfg
+        _, _, status = await self.image_preview(umo=PRIVATE)
+        self.assertEqual(status["data"]["preview"]["umo"], PRIVATE)
+        result = await self.web_call(self.p.web.send, {"token": status["data"]["preview"]["token"]})
+        self.assertEqual(result["data"]["result"], "sent")
+        self.assertEqual(self.send.call_args.args[0], PRIVATE)
 
     async def web_call(self, method, data=None, username="admin"):
         from astrbot.api.web import PluginRequest, bind_request_context

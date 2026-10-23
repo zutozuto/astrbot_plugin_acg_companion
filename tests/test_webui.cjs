@@ -34,11 +34,12 @@ function setup(readyState='loading') {
   return {elements,window,errors,async parsed(){document.readyState='complete';await listeners.get('DOMContentLoaded')?.();await delay(0);}};
 }
 const UMO='test:GroupMessage:123456789';
-function sdk({fail=false,envelope=false,share=false,imageError=false,twoGroups=false,secondImageError=false,sendError=false,captionError=false,settings=false}={}) {
+function sdk({fail=false,envelope=false,share=false,imageError=false,twoGroups=false,privateChat=false,secondImageError=false,sendError=false,captionError=false,settings=false}={}) {
   const calls=[], bodies=[];
-  let imageWording='画了张街角';
-  const groups=[{umo:UMO,name:'测试群',count:0,cap:3,manual_count:3,manual_cap:20,calls:0,call_cap:8,paused:false,blockers:[],plan:[],pending:[],attempts:[]}];
+  let imageWording='画了张街角',imageUmo=UMO;
+  const groups=[{umo:UMO,name:'群 123456789',count:0,cap:3,manual_count:3,manual_cap:20,calls:0,call_cap:8,paused:false,blockers:[],plan:[],pending:[],attempts:[]}];
   if(twoGroups)groups.push({...groups[0],umo:'arona:GroupMessage:999999',name:'第二个测试群'});
+  if(privateChat)groups.push({...groups[0],umo:'arona:FriendMessage:234567890',name:'私聊 234567890',is_group:false});
   const imageBudget={used:2,limit:20,remaining:18,interval_seconds:60};
   const status={status:'ok',data:{version:'test',groups,total_calls:0,total_call_cap:16,config:{},schema:{},secrets:{},revision:'r',image_test_budget:imageBudget}};
   if(settings){status.data.schema=JSON.parse(fs.readFileSync(path.join(__dirname,'../_conf_schema.json'),'utf8'));
@@ -54,10 +55,10 @@ function sdk({fail=false,envelope=false,share=false,imageError=false,twoGroups=f
   const unwrap=result=>envelope?result:(result.data??result);
   return {calls,bodies,ready:()=>Promise.resolve(),apiGet:async endpoint=>{route(endpoint);if(fail)throw new Error('后台暂时不可用');return unwrap(status);},
     apiPost:async(endpoint,body)=>{route(endpoint);bodies.push({endpoint,body});let result;
-      if(endpoint==='send'){if(sendError)throw new Error('本群今日手动试发已用 20/20 次；可在插件设置提高上限');result={status:'ok',data:{result:'sent',umo:UMO},message:'已发送到选定群'};}
-      else if(endpoint==='image-start')result={status:'ok',data:{token:'image-job',status:'running'}};
+      if(endpoint==='send'){if(sendError)throw new Error('当前会话今日手动试发已用 20/20 次；可在插件设置提高上限');result={status:'ok',data:{result:'sent',umo:UMO},message:'已发送到选定会话'};}
+      else if(endpoint==='image-start'){imageUmo=body.umo;result={status:'ok',data:{token:'image-job',status:'running'}};}
       else if(endpoint==='image-caption'){if(captionError)throw new Error('今日文本模型额度已用完');imageWording='今天吃了碗面，终于暖和过来了';result={status:'ok',data:{text:imageWording}};}
-      else if(endpoint==='image-status')result={status:'ok',data:imageError?{status:'error',message:'密钥无效或已过期'}:secondImageError&&bodies.filter(x=>x.endpoint==='image-start').length>1?{status:'error',message:'达到插件设置的每日上限',budget:imageBudget}:{status:'ready',budget:imageBudget,preview:{token:'image-draft',text:imageWording,title:'涂鸦',umo:UMO,image:'data:image/png;base64,offline',expires:Date.now()/1000+600,sendable:true,reused:false}}};
+      else if(endpoint==='image-status')result={status:'ok',data:imageError?{status:'error',message:'密钥无效或已过期'}:secondImageError&&bodies.filter(x=>x.endpoint==='image-start').length>1?{status:'error',message:'达到插件设置的每日上限',budget:imageBudget}:{status:'ready',budget:imageBudget,preview:{token:'image-draft',text:imageWording,title:'涂鸦',umo:imageUmo,image:'data:image/png;base64,offline',expires:Date.now()/1000+600,sendable:true,reused:false}}};
       else if(endpoint==='config')result={...status,message:'已保存并立即生效'};
       else if(endpoint==='pause')result={status:'ok',data:null,message:body.paused?'已暂停':'已恢复'};
       else result={status:'ok',data:share?{decision:'send',text:'预览文本',token:'test-token',sendable:true,expires:Date.now()/1000+600,umo:body.umo,
@@ -118,7 +119,7 @@ test('unwrapped preview and send payloads work through plugin-prefixed routes',a
   assert.equal(ui.elements.get('share-cover').src,'https://y.gtimg.cn/test.jpg');
   assert.equal(ui.elements.get('send').disabled,false);
   await ui.elements.get('send').onclick();
-  assert.equal(ui.elements.get('notice').textContent,'已发送到选定群');
+  assert.equal(ui.elements.get('notice').textContent,'已发送到选定会话');
   assert.equal(ui.elements.get('send').disabled,true);
   await ui.elements.get('send').onclick();
   assert.equal(bridge.calls.filter(x=>x.endsWith('/send')).length,1);
@@ -179,6 +180,16 @@ test('image preview uses independent routes and send reuses the draft',async()=>
   await ui.elements.get('image-send').onclick();
   assert.equal(bridge.calls.filter(x=>x.endsWith('/send')).length,1);
   assert.equal(bridge.calls.filter(x=>x.endsWith('/image-start')).length,1);
+});
+
+test('private chat session appears in selectors and can be selected for image tests',async()=>{
+  const ui=setup();const bridge=sdk({privateChat:true});ui.window.AstrBotPluginView=bridge;await ui.parsed();
+  assert.equal(ui.elements.get('group').options.length,2);
+  assert.equal(ui.elements.get('group').options[1].textContent,'私聊 234567890');
+  ui.elements.get('image-group').value='arona:FriendMessage:234567890';
+  await ui.elements.get('image-generate').onclick();
+  assert.equal(bridge.bodies.find(x=>x.endpoint==='image-start').body.umo,'arona:FriendMessage:234567890');
+  assert.match(ui.elements.get('image-meta').textContent,/私聊 234567890/);
 });
 test('image generation error is visible and never unlocks send or resubmits',async()=>{
   const ui=setup();const bridge=sdk({imageError:true});ui.window.AstrBotPluginView=bridge;await ui.parsed();

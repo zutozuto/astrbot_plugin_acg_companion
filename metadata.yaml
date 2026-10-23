@@ -1,7 +1,7 @@
 name: astrbot_plugin_acg_companion
 display_name: ACG 群友
 desc: 独立、低频的 ACG 热榜主动分享、购物玩笑和延时话题跟进，可选远程图片与歌曲生成。
-version: v1.4.0
+version: v1.5.0
 author: zuto
 repo: https://github.com/zutozuto/astrbot_plugin_acg_companion
 support_platforms:

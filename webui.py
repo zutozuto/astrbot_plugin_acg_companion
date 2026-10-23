@@ -14,7 +14,7 @@ from pathlib import Path
 from astrbot.api.web import request
 
 from . import __version__
-from .core import Settings, local_time, plan
+from .core import SESSION_RE, Settings, is_group_session, local_time, plan, session_label
 from .sources import valid_link
 from .sharing import preview_card
 from .media import image_endpoint, image_format
@@ -87,7 +87,7 @@ class WebPanel:
 
     def group(self, value):
         if not isinstance(value, str) or value not in self.p.cfg.sessions:
-            raise ValueError("请选择配置中的目标群")
+            raise ValueError("请选择配置中的目标会话")
         return value
 
     def snapshot(self):
@@ -100,7 +100,7 @@ class WebPanel:
                 "AND expires>=? ORDER BY due LIMIT 16", (umo, now))]
             attempts = [dict(row) for row in p.store.db.execute(
                 "SELECT kind,text,ts,status FROM attempts WHERE umo=? ORDER BY ts DESC LIMIT 8", (umo,))]
-            groups.append({"umo": umo, "name": umo.rsplit(":", 1)[-1],
+            groups.append({"umo": umo, "name": session_label(umo), "is_group": is_group_session(umo),
                            "count": p.store.count(umo, now, manual=False), "cap": cap,
                            "manual_count": p.store.count(umo, now, manual=True), "manual_cap": p.cfg.manual_send_limit,
                            "calls": p.store.calls(umo, now), "call_cap": p.cfg.call_cap,
@@ -151,8 +151,8 @@ class WebPanel:
             raise ValueError("清除密钥参数不正确")
         for key in clear:
             values[key] = ""
-        if any(not re.fullmatch(r"[^:\s]+:GroupMessage:\d+", x) for x in values.get("sessions", [])):
-            raise ValueError("目标群格式应为 arona:GroupMessage:群号")
+        if any(not SESSION_RE.fullmatch(x) for x in values.get("sessions", [])):
+            raise ValueError("目标会话格式应为 平台ID:GroupMessage:群号 或 平台ID:FriendMessage:QQ号")
         if any(not x.isdigit() for x in values.get("ignored_user_ids", [])):
             raise ValueError("忽略账号必须填写数字 QQ 号")
         url = values.get("music_api_url", "")
@@ -221,10 +221,10 @@ class WebPanel:
         if not isinstance(text, str) or len(text) > 1000:
             raise ValueError("模拟场景最多 1000 字")
         elapsed = {"share": 60, "purchase": 5, "social": 40, "problem": 180, "thursday": 0}[kind]
-        job = origin or {"umo": umo, "kind": kind, "uid": "", "name": "模拟群友",
+        job = origin or {"umo": umo, "kind": kind, "uid": "", "name": "模拟聊天对象",
                          "text": text or SAMPLES[kind], "created": now - elapsed * 60}
         if simulation:
-            records = [{"ts": job["created"], "uid": "", "name": "模拟群友", "text": job["text"], "bot": 0}]
+            records = [{"ts": job["created"], "uid": "", "name": "模拟聊天对象", "text": job["text"], "bot": 0}]
         items = []
         if kind == "share":
             source = data.get("source", "random")
@@ -281,7 +281,7 @@ class WebPanel:
                 try:
                     result = ok(await asyncio.wait_for(self.build_preview(data, now), timeout=100))
                 except asyncio.TimeoutError:
-                    result = {"status": "error", "message": "生成超时，未发群消息；若已调用模型仍会计入额度"}
+                    result = {"status": "error", "message": "生成超时，未向会话发送消息；若已调用模型仍会计入额度"}
                 except ValueError as exc:
                     result = {"status": "error", "message": str(exc)}
                 self.requests[request_id] = (now + 600, result)
@@ -452,16 +452,16 @@ class WebPanel:
                 if draft["expires"] <= now or draft["revision"] != self.revision():
                     raise ValueError("预览已过期或配置已变更，请重新生成")
                 if draft["simulation"]:
-                    raise ValueError("模拟场景只在网页预览；试发请选择热榜分享或本群真实话题")
+                    raise ValueError("模拟场景只在网页预览；试发请选择热榜分享或当前会话真实话题")
                 if not self.p.cfg.enabled or self.p.store.state(job["umo"]).get("paused"):
-                    raise ValueError("插件或本群已暂停，请先开启再试发")
+                    raise ValueError("插件或当前会话已暂停，请先开启再试发")
                 cap = self.p.cfg.manual_send_limit
                 used = self.p.store.count(job["umo"], now, manual=True)
                 if used >= cap:
-                    raise ValueError(f"本群今日手动试发已用 {used}/{cap} 次；可在插件设置提高“每群每天手动试发消息上限”，自动发言额度另计")
+                    raise ValueError(f"当前会话今日手动试发已用 {used}/{cap} 次；可在插件设置提高“每会话每天手动试发消息上限”，自动发言额度另计")
                 item = draft["item"]
                 if item and self.p.store.seen(job["umo"], item.key, now):
-                    raise ValueError("这条内容已在本群分享过，请重新生成")
+                    raise ValueError("这条内容已在当前会话分享过，请重新生成")
                 origin = draft["origin"]
                 if origin and (self.p.store.status(origin["id"]) != "pending" or origin["expires"] <= now):
                     raise ValueError("原话题已解决、取消或过期，不再发送")
@@ -474,7 +474,7 @@ class WebPanel:
                     self.p.store.finish(origin["id"], "manual_test")
                 result = await self.p.deliver(job, draft["text"], item, now, cap)
                 draft["status"] = result
-                message = "已发送到选定群" if result == "sent" else "发送结果不确定，已停止重发，请到群里确认"
+                message = "已发送到选定会话" if result == "sent" else "发送结果不确定，已停止重发，请到会话中确认"
                 return ok({"result": result, "umo": job["umo"]}, message)
         except ValueError as exc:
             return {"status": "error", "message": str(exc)}
